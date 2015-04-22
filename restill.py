@@ -4,6 +4,9 @@ from wsgiref.simple_server import make_server
 from resources.properties import Properties
 from cgi import parse_qs
 from cgi import escape
+from headers import content_size
+from headers import content_type
+from headers import content_length
 import json
 
 html = "%s"
@@ -13,37 +16,31 @@ resources = {
 }
 
 
-def application(environ, start_response):
+def application(environ, start_resp):
 
-    # the environment variable CONTENT_LENGTH may be empty or missing
-    try:
-        request_body_size = int(environ.get('CONTENT_LENGTH', 0)).lower()
-    except (ValueError):
-        request_body_size = 0
+    # get request info
+    req_size = content_size(environ)
+    req_body = environ['wsgi.input'].read(req_size)
+    req_data = parse_qs(req_body)
+    req_uri = environ['PATH_INFO']
+    req_method = environ['REQUEST_METHOD']
 
-    # When the method is POST the query string will be sent
-    # in the HTTP request body which is passed by the WSGI server
-    # in the file like wsgi.input environment variable.
-    request_body = environ['wsgi.input'].read(request_body_size)
-    d = parse_qs(request_body)
-
-    resource = environ['PATH_INFO'].split('/')[1]
+    # get resource
+    resource = req_uri.split('/')[1]
     resource = escape(resource)
-    resource = resources[resource]()
-    resource = json.dumps(resource.__dict__)
+    resource = resources[resource](req_method, req_data)
 
-    # age = d.get('age', [''])[0]  # Returns the first age value.
-    # age = escape(age)
+    # create response
+    resp = json.dumps(resource.__dict__)
+    resp_body = html % (resp)
+    resp_status = '200 OK'
+    resp_headers = [content_type(), content_length(resp_body)]
 
-    response_body = html % (resource)
+    # run response
+    start_resp(resp_status, resp_headers)
 
-    status = '200 OK'
-
-    response_headers = [('Content-Type', 'text/html'),
-                        ('Content-Length', str(len(response_body)))]
-    start_response(status, response_headers)
-
-    return [response_body]
+    # return body
+    return [resp_body]
 
 httpd = make_server('localhost', 8051, application)
 httpd.serve_forever()
